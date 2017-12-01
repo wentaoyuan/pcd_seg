@@ -90,13 +90,16 @@ def train():
             train_loss = 0.
             train_acc = 0.
             for i in np.random.permutation(num_train_files):
-                start = time.process_time()
+                start = time.time()
                 X, Y, M, C = load_data(os.path.join(train_dir, str(i) + '.npz'), level, order)
+                end = time.time()
+                load_time = end - start
                 perm = np.random.permutation(X.shape[0])
                 X = X[perm]
                 Y = Y[perm]
                 M = M[perm]
                 C = C[perm]
+                start = time.time()
                 for j in range(X.shape[0] // batch_size):
                     begin = j * batch_size
                     end = (j+1) * batch_size
@@ -111,8 +114,8 @@ def train():
                     train_loss += loss
                     train_acc += acc
                 steps += X.shape[0] // batch_size
-                end = time.process_time()
-                print('Step:', steps, ' Time:', end - start)
+                end = time.time()
+                print('Step:', steps, 'load time', load_time, 'training time:', end - start)
             train_loss /= steps * batch_size
             train_acc /= steps * batch_size
             train_loss_summary, train_acc_summary = sess.run(
