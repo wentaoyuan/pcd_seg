@@ -2,48 +2,9 @@ import argparse
 import numpy as np
 import os
 import tensorflow as tf
-from tensorpack import dataflow
-from termcolor import cprint
 import tf_ops
 import time
-
-
-def print_emph(content):
-    cprint(content, 'blue', attrs=['bold'])
-
-
-def create_dir(dir_name):
-    if os.path.exists(dir_name):
-        delete_key = input('===== %s exists. Delete? [y (or enter)/n] ' % dir_name)
-        if delete_key == 'y' or delete_key == "":
-            os.system('rm -rf %s' % dir_name)
-    else:
-        os.makedirs(dir_name)
-
-
-def batch_generator(lmdb_path, batch_size, nproc):
-    df = dataflow.LMDBDataPoint(lmdb_path, shuffle=True)
-    num_samples = df.size()
-    df = dataflow.PrefetchDataZMQ(df, nproc)
-    df = dataflow.BatchData(df, batch_size, use_list=True)
-    df = dataflow.RepeatedData(df, -1)
-    df.reset_state()
-    return df.get_data(), num_samples
-
-
-def get_feed_dict(placeholders, points, labels, masks, cheby):
-    feed_dict = {
-        placeholders['points']: points,
-        placeholders['labels']: labels,
-        placeholders['masks']: masks
-    }
-    for i, level in enumerate(placeholders['cheby']):
-        for j, order in enumerate(level):
-            for k, pl in enumerate(order):
-                # cheby.shape = (batch, level, order)
-                indices, values, shape = cheby[k][i][j]
-                feed_dict[pl] = tf.SparseTensorValue(indices, values, shape)
-    return feed_dict
+from util import *
 
 
 def get_learning_rate(global_step, args):
@@ -74,17 +35,17 @@ def train(args):
         print_emph('Creating model...')
         points = tf.placeholder(tf.float32,shape=(args.batch_size, args.num_points, 3), name='points')
         labels = tf.placeholder(tf.int32,shape=(args.batch_size, args.num_points), name='labels')
-        masks = tf.placeholder(tf.bool,shape=(args.batch_size, args.num_points), name='masks')
+        mask = tf.placeholder(tf.bool,shape=(args.batch_size, args.num_points), name='mask')
         cheby = [[[tf.sparse_placeholder(tf.float32, name='cheby_l%d_o%d_b%d' % (k, j, i))
             for i in range(args.batch_size)]
             for j in range(args.order+1)]
             for k in range(args.level+1)]
         # is_training = tf.placeholder(tf.bool, shape=())
-        placeholders = {'points': points, 'labels': labels, 'masks': masks, 'cheby': cheby}
+        placeholders = {'points': points, 'labels': labels, 'mask': mask, 'cheby': cheby}
 
         output = tf_ops.gcn(points, cheby, args.num_points, args.num_parts)
-        xentropy = tf_ops.masked_sparse_softmax_cross_entropy(output, labels, masks)
-        accuracy = tf_ops.masked_accuracy(output, labels, masks)
+        xentropy = tf_ops.masked_sparse_softmax_cross_entropy(output, labels, mask)
+        accuracy = tf_ops.masked_accuracy(output, labels, mask)
 
         sess = tf.Session()
 
@@ -115,8 +76,8 @@ def train(args):
             step = tf.train.global_step(sess, global_step) + 1
             epoch = step * args.batch_size // num_train_samples + 1
 
-            points, labels, masks, cheby = next(train_gen)
-            feed_dict = get_feed_dict(placeholders, points, labels, masks, cheby)
+            points, labels, mask, cheby = next(train_gen)
+            feed_dict = get_feed_dict(placeholders, points, labels, mask, cheby)
             _, loss, acc, summary = sess.run([train_op, xentropy, accuracy, train_summary],
                 feed_dict=feed_dict)
             writer.add_summary(summary, step)
@@ -129,8 +90,8 @@ def train(args):
                 total_loss = 0.
                 total_acc = 0.
                 for i in range(num_val_batches):
-                    points, labels, masks, cheby = next(val_gen)
-                    feed_dict = get_feed_dict(placeholders, points, labels, masks, cheby)
+                    points, labels, mask, cheby = next(val_gen)
+                    feed_dict = get_feed_dict(placeholders, points, labels, mask, cheby)
                     loss, acc = sess.run([xentropy, accuracy], feed_dict=feed_dict)
                     total_loss += loss * args.batch_size
                     total_acc += acc * args.batch_size
@@ -154,13 +115,13 @@ if __name__ == '__main__':
     parser.add_argument('--num_parts', type=int, default=4)
     parser.add_argument('--level', type=int, default=2)
     parser.add_argument('--order', type=int, default=1)
-    parser.add_argument('--max_steps', type=int, default=1e7)
+    parser.add_argument('--max_steps', type=int, default=1e6)
     parser.add_argument('--print_steps', type=int, default=100)
     parser.add_argument('--eval_steps', type=int, default=1000)
-    parser.add_argument('--batch_size', type=int, default=32)
+    parser.add_argument('--batch_size', type=int, default=16)
     parser.add_argument('--base_lr', type=float, default=1e-4)
     parser.add_argument('--lr_decay_steps', type=int, default=1e5)
-    parser.add_argument('--lr_decay_rate', type=float, default=0.7)
+    parser.add_argument('--lr_decay_rate', type=float, default=0.5)
     parser.add_argument('--lr_clip', type=float, default=1e-6)
     parser.add_argument('--weight_decay', type=float, default=1e-6)
     args = parser.parse_args()
