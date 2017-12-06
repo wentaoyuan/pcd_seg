@@ -1,6 +1,7 @@
-function iou_weighted_ave = part_seg_eva(gt_label_path, pred_label_path)
+function [accuracy, iou_all, iou_weighted_ave] = part_seg_eva(gt_label_path, pred_label_path)
 categories = dir(fullfile(pred_label_path,'0*'));
 ncategory = size(categories,1);
+accuracy = zeros(ncategory,1);
 iou_all = zeros(ncategory,1);
 nmodels = zeros(ncategory,1);
 for i=1:ncategory
@@ -20,6 +21,8 @@ for i=1:ncategory
         iou_per_part(:,j) = cellfun(@(x) (sum(x(:,1)==j & x(:,2)==j)+eps)/(sum(x(:,1)==j | x(:,2)==j)+eps), pred_gt_all);
     end
     iou_all(i) = mean(iou_per_part(:));
+    acc = cellfun(@(x) sum(x(:,1) == x(:,2)) / size(x, 1), pred_gt_all);
+    accuracy(i) = mean(acc);
 end
 iou_weighted_ave = sum(iou_all.*nmodels)/sum(nmodels);
 disp(sprintf('Average Per Part IoU on %d Categories: %f',ncategory, iou_weighted_ave))

@@ -21,33 +21,32 @@ def get_learning_rate(global_step, args):
 
 def train(args):
     log_dir = os.path.join('../log', args.task_name)
-    checkpoint_dir = os.path.join('../checkpoint', args.task_name)
     create_dir(log_dir)
-    create_dir(checkpoint_dir)
 
     train_lmdb_path = '../data/lmdb/%s_%d_%s.lmdb' % (args.category, args.num_points, 'train')
     val_lmdb_path = '../data/lmdb/%s_%d_%s.lmdb' % (args.category, args.num_points, 'val')
-    train_gen, num_train_samples = batch_generator(train_lmdb_path, args.batch_size, args.nproc)
-    val_gen, num_val_samples = batch_generator(val_lmdb_path, args.batch_size, args.nproc)
+    train_gen, num_train_samples = batch_generator(train_lmdb_path, args.batch_size, args.nproc, repeat=True)
+    val_gen, num_val_samples = batch_generator(val_lmdb_path, args.batch_size, args.nproc, repeat=True)
     num_val_batches = num_val_samples // args.batch_size
 
     with tf.Graph().as_default():
         print_emph('Creating model...')
-        points = tf.placeholder(tf.float32,shape=(args.batch_size, args.num_points, 3), name='points')
-        labels = tf.placeholder(tf.int32,shape=(args.batch_size, args.num_points), name='labels')
-        mask = tf.placeholder(tf.bool,shape=(args.batch_size, args.num_points), name='mask')
-        cheby = [[[tf.sparse_placeholder(tf.float32, name='cheby_l%d_o%d_b%d' % (k, j, i))
+        points_pl = tf.placeholder(tf.float32, shape=(args.batch_size, args.num_points, 3), name='points')
+        labels_pl = tf.placeholder(tf.int32, shape=(args.batch_size, args.num_points), name='labels')
+        mask_pl = tf.placeholder(tf.bool, shape=(args.batch_size, args.num_points), name='mask')
+        cheby_pl = [[[tf.sparse_placeholder(tf.float32, name='cheby_l%d_o%d_b%d' % (k, j, i))
             for i in range(args.batch_size)]
             for j in range(args.order+1)]
             for k in range(args.level+1)]
-        # is_training = tf.placeholder(tf.bool, shape=())
-        placeholders = {'points': points, 'labels': labels, 'mask': mask, 'cheby': cheby}
 
-        output = tf_ops.gcn(points, cheby, args.num_points, args.num_parts)
-        xentropy = tf_ops.masked_sparse_softmax_cross_entropy(output, labels, mask)
-        accuracy = tf_ops.masked_accuracy(output, labels, mask)
+        output = tf_ops.gcn(points_pl, cheby_pl, args.num_points, args.num_parts)
+        xentropy = tf_ops.masked_sparse_softmax_cross_entropy(output, labels_pl, mask_pl)
+        accuracy = tf_ops.masked_accuracy(output, labels_pl, mask_pl)
 
-        sess = tf.Session()
+        config = tf.ConfigProto()
+        config.gpu_options.allow_growth = True
+        config.allow_soft_placement = True
+        sess = tf.Session(config=config)
 
         global_step = tf.train.create_global_step(sess.graph)
         learning_rate = get_learning_rate(global_step, args)
@@ -77,7 +76,9 @@ def train(args):
             epoch = step * args.batch_size // num_train_samples + 1
 
             points, labels, mask, cheby = next(train_gen)
-            feed_dict = get_feed_dict(placeholders, points, labels, mask, cheby)
+            feed_dict = {points_pl: points, labels_pl: labels, mask_pl: mask}
+            feed_dict.update(get_cheby_feed_dict(cheby_pl, cheby))
+
             _, loss, acc, summary = sess.run([train_op, xentropy, accuracy, train_summary],
                 feed_dict=feed_dict)
             writer.add_summary(summary, step)
@@ -91,7 +92,8 @@ def train(args):
                 total_acc = 0.
                 for i in range(num_val_batches):
                     points, labels, mask, cheby = next(val_gen)
-                    feed_dict = get_feed_dict(placeholders, points, labels, mask, cheby)
+                    feed_dict = {points_pl: points, labels_pl: labels, mask_pl: mask}
+                    feed_dict.update(get_cheby_feed_dict(cheby_pl, cheby))
                     loss, acc = sess.run([xentropy, accuracy], feed_dict=feed_dict)
                     total_loss += loss * args.batch_size
                     total_acc += acc * args.batch_size
@@ -101,9 +103,8 @@ def train(args):
                 writer.add_summary(summary, step)
                 print('Epoch:', epoch, ' step:', step, ' loss:', mean_loss, ' accuracy:', mean_acc,
                     ' time:', time.time() - start)
-                save_path = os.path.join(checkpoint_dir, 'Epoch-%d_step-%d' % (epoch, step))
-                saver.save(sess, save_path)
-                print_emph('Model saved at %s' % save_path)
+                saver.save(sess, os.path.join(log_dir, 'model.ckpt'), step)
+                print_emph('Model saved at %s' % log_dir)
 
 
 if __name__ == '__main__':

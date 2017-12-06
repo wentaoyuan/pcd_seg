@@ -4,27 +4,7 @@ import os
 from scipy import sparse
 from tensorpack import DataFlow, dftools
 from third_party import coarsening, graph
-
-
-synset_ids = {
-    "Airplane": "02691156",
-    "Bag": "02773838",
-    "Cap": "02954340",
-    "Car": "02958343",
-    "Chair": "03001627",
-    "Earphone": "03261776",
-    "Guitar": "03467517",
-    "Knife": "03624134",
-    "Lamp": "03636649",
-    "Laptop": "03642806",
-    "Motorbike": "03790512",
-    "Mug": "03797390",
-    "Pistol": "03948459",
-    "Rocket": "04099429",
-    "Skateboard": "04225987",
-    "Table": "04379243"
-}
-lmdb_dir = '../data/lmdb'
+from util import synset_ids
 
 
 def sparse_to_tuple(mx):
@@ -51,19 +31,18 @@ def chebyshev(L, k):
 
 
 class graph_df(DataFlow):
-    def __init__(self, file_list, data_dir, label_dir, args):
-        self.file_list = file_list
-        # we apply a global shuffling here because later we'll only use local shuffling
-        np.random.shuffle(self.file_list)
+    def __init__(self, file_names, data_dir, label_dir, args):
+        self.file_names = file_names
         self.data_dir = data_dir
         self.label_dir = label_dir
+        self.is_test = args.is_test
         self.nn = args.n
         self.levels = args.l
         self.orders = args.k
         self.sample_num = args.m
 
     def get_data(self):
-        for file_name in self.file_list:
+        for file_name in self.file_names:
             try:
                 x = np.loadtxt(os.path.join(self.data_dir, file_name + '.pts'))
                 y = np.loadtxt(os.path.join(self.label_dir, file_name + '.seg'))
@@ -73,38 +52,44 @@ class graph_df(DataFlow):
             # Normalize point cloud into a 1x1x1 cube
             # x -= x.min(axis=0)
             # x /= x.max(axis=0)
+            n = x.shape[0]
             dist, idx = graph.distance_scipy_spatial(x, self.nn)
             A = graph.adjacency(dist, idx)
             graphs, perm = coarsening.coarsen(A, levels=self.levels)
             x = coarsening.perm_data(x.T, perm).T
             y = coarsening.perm_data(y[None,:], perm)[0,:]
-            # Upsample by adding args.m-n fake nodes
+            # Upsample to sample_num points by adding fake nodes
             m = self.sample_num
-            n = x.shape[0]
-            if n > m:
-                print('{0} has {1} points which exceeds maximum {2}'.format(file_name, n, m))
-            else:
-                x = np.pad(x, [(0, m - n), (0,0)], 'constant')
-                y = np.pad(y, [(0, m - n)], 'constant')
-                for l in range(self.levels + 1):
-                    g = graphs[l].tocoo()
-                    graphs[l] = sparse.csr_matrix((g.data, (g.row, g.col)),
-                        shape=(m, m))
-                    m = m // 2
-                mask = y > 0   # mask for real nodes
-                y[mask] -= 1
-                cheby = [chebyshev(graph.laplacian(A), self.orders) for A in graphs]
-                # for i in range(cheby.shape[1]):
-                #     print(cheby[0][i].nnz, cheby[0][i].nnz / cheby[0][i].shape[0] ** 2)
+            n_new = x.shape[0]
+            if n_new > m:
+                print('{0} has {1} points which exceeds maximum {2}'.format(
+                    file_name, n_new, m))
+                continue
+            x = np.pad(x, [(0, m - n_new), (0,0)], 'constant')
+            y = np.pad(y, [(0, m - n_new)], 'constant')
+            for l in range(self.levels + 1):
+                g = graphs[l].tocoo()
+                graphs[l] = sparse.csr_matrix((g.data, (g.row, g.col)), shape=(m, m))
+                m = m // 2
+            mask = y > 0   # mask for real nodes
+            y[mask] -= 1
+            cheby = [chebyshev(graph.laplacian(A), self.orders) for A in graphs]
+            # for i in range(cheby.shape[1]):
+            #     print(cheby[0][i].nnz, cheby[0][i].nnz / cheby[0][i].shape[0] ** 2)
+            if not self.is_test:
                 yield [x, y, mask, cheby]
+            else:
+                inv_perm = np.argsort(perm)[:n]
+                yield [file_name, x, inv_perm, cheby]
 
     def size(self):
-        return len(self.file_list)
+        return len(self.file_names)
 
 
 def process_dataset(args):
     sample_num = args.m
     split = args.dataset
+    args.is_test = split == 'test'
     for cat_name in args.c:
         synset_id = synset_ids[cat_name]
         print('Processing', synset_id, cat_name)
@@ -113,7 +98,7 @@ def process_dataset(args):
         file_names = [os.path.splitext(entry)[0] for entry in os.listdir(data_dir)
             if entry.endswith('.pts')]
         df = graph_df(file_names, data_dir, label_dir, args)
-        output_path = os.path.join(lmdb_dir, '%s_%d_%s.lmdb' % (cat_name, sample_num, split))
+        output_path = os.path.join('../data/lmdb', '%s_%d_%s.lmdb' % (cat_name, sample_num, split))
         if os.path.exists(output_path):
             os.system('rm -f %s' % output_path)
         dftools.dump_dataflow_to_lmdb(df, output_path)
