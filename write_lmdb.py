@@ -101,8 +101,8 @@ def process_dataset(args):
         output_path = os.path.join('../data/lmdb', '%s_%d_%s.lmdb' % (cat_name, sample_num, split))
         if os.path.exists(output_path):
             os.system('rm -f %s' % output_path)
-        df = dataflow.PrefetchDataZMQ(df, nr_proc=8)
-        dftools.dump_dataflow_to_lmdb(df, output_path) # write_frequency=4000
+        df = dataflow.PrefetchDataZMQ(df, nr_proc=1)
+        dftools.dump_dataflow_to_lmdb(df, output_path, write_frequency=args.w)
 
 
 def main():
@@ -112,6 +112,7 @@ def main():
     parser.add_argument('-l', type=int, default=4, help='number of coarsening levels')
     parser.add_argument('-k', type=int, default=3, help='order of Chebyshev polynomial')
     parser.add_argument('-m', type=int, default=4096, help='number of output points')
+    parser.add_argument('-w', type=int, default=5000, help='lmdb write frequency')
     parser.add_argument('-c', nargs='+', help='categories to process')
     args = parser.parse_args()
     process_dataset(args)
