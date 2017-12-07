@@ -4,6 +4,7 @@ import os
 import tensorflow as tf
 import tf_ops
 import time
+from termcolor import colored
 from util import *
 
 
@@ -20,8 +21,16 @@ def get_learning_rate(global_step, args):
 
 
 def train(args):
+    def log(content):
+        log_file.write(content)
+        log_file.write('\n')
+        log_file.flush()
+        print(content)
+
     log_dir = os.path.join('../log', args.task_name)
     create_dir(log_dir)
+    log_file = open(os.path.join(log_dir, 'log.txt'), 'w')
+    log(str(args))
 
     train_lmdb_path = '../data/lmdb/%s_%d_%s.lmdb' % (args.category, args.num_points, 'train')
     val_lmdb_path = '../data/lmdb/%s_%d_%s.lmdb' % (args.category, args.num_points, 'val')
@@ -30,7 +39,7 @@ def train(args):
     num_val_batches = num_val_samples // args.batch_size
 
     with tf.Graph().as_default():
-        print_emph('Creating model...')
+        print(colored('Creating model...', on_color='on_blue'))
         points_pl = tf.placeholder(tf.float32, shape=(args.batch_size, args.num_points, 3), name='points')
         labels_pl = tf.placeholder(tf.int32, shape=(args.batch_size, args.num_points), name='labels')
         mask_pl = tf.placeholder(tf.bool, shape=(args.batch_size, args.num_points), name='mask')
@@ -39,7 +48,7 @@ def train(args):
             for j in range(args.order+1)]
             for k in range(args.level+1)]
 
-        output = tf_ops.gcn(points_pl, cheby_pl, args.num_points, args.num_parts)
+        output = tf_ops.gcn(points_pl, cheby_pl, args.num_points, args.num_parts, args.level)
         xentropy = tf_ops.masked_sparse_softmax_cross_entropy(output, labels_pl, mask_pl)
         accuracy = tf_ops.masked_accuracy(output, labels_pl, mask_pl)
 
@@ -48,12 +57,13 @@ def train(args):
         config.allow_soft_placement = True
         sess = tf.Session(config=config)
 
+        saver = tf.train.Saver(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES))
+
         global_step = tf.train.create_global_step(sess.graph)
         learning_rate = get_learning_rate(global_step, args)
         lr_summary = tf.summary.scalar('learning_rate', learning_rate)
         trainer = tf.train.AdamOptimizer(learning_rate)
         train_op = trainer.minimize(xentropy, global_step, tf.trainable_variables())
-        saver = tf.train.Saver()
 
         train_loss = tf.summary.scalar('training_loss', xentropy)
         train_acc = tf.summary.scalar('training_accuracy', accuracy)
@@ -68,7 +78,7 @@ def train(args):
         init = tf.global_variables_initializer()
         sess.run(init)
 
-        print_emph('Training...')
+        log(colored('Training...', on_color='on_red'))
         start = time.time()
         step = 0
         while step < args.max_steps:
@@ -83,11 +93,11 @@ def train(args):
                 feed_dict=feed_dict)
             writer.add_summary(summary, step)
             if step % args.print_steps == 0:
-                print('Epoch:', epoch, ' step:', step, ' loss:', loss, ' accuracy:', acc,
-                    ' time:', time.time() - start)
+                log('Epoch: %d  step: %d  loss: %f  accuracy: %f  time: %f' % (
+                    epoch, step, loss, acc, time.time() - start))
 
             if step % args.eval_steps == 0:
-                print_emph('Evaluating...')
+                log(colored('Evaluating...', on_color='on_green'))
                 total_loss = 0.
                 total_acc = 0.
                 for i in range(num_val_batches):
@@ -101,10 +111,10 @@ def train(args):
                 mean_acc = total_acc / (num_val_batches * args.batch_size)
                 summary = sess.run(val_summary, feed_dict={val_loss_pl: mean_loss, val_acc_pl: mean_acc})
                 writer.add_summary(summary, step)
-                print('Epoch:', epoch, ' step:', step, ' loss:', mean_loss, ' accuracy:', mean_acc,
-                    ' time:', time.time() - start)
+                log('Epoch: %d  step: %d  loss: %f  accuracy: %f  time: %f' % (
+                    epoch, step, mean_loss, mean_acc, time.time() - start))
                 saver.save(sess, os.path.join(log_dir, 'model.ckpt'), step)
-                print_emph('Model saved at %s' % log_dir)
+                log(colored('Model saved at %s' % log_dir, on_color='on_green'))
 
 
 if __name__ == '__main__':

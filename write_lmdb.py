@@ -2,7 +2,7 @@ import argparse
 import numpy as np
 import os
 from scipy import sparse
-from tensorpack import DataFlow, dftools
+from tensorpack import DataFlow, dataflow, dftools
 from third_party import coarsening, graph
 from util import synset_ids
 
@@ -101,7 +101,8 @@ def process_dataset(args):
         output_path = os.path.join('../data/lmdb', '%s_%d_%s.lmdb' % (cat_name, sample_num, split))
         if os.path.exists(output_path):
             os.system('rm -f %s' % output_path)
-        dftools.dump_dataflow_to_lmdb(df, output_path)
+        df = dataflow.PrefetchDataZMQ(df, nr_proc=8)
+        dftools.dump_dataflow_to_lmdb(df, output_path) # write_frequency=4000
 
 
 def main():

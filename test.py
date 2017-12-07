@@ -2,6 +2,7 @@ import argparse
 import numpy as np
 import tensorflow as tf
 import tf_ops
+from termcolor import colored
 from util import *
 
 
@@ -13,11 +14,11 @@ def test(args):
     output_dir = os.path.join('../data/test_pred', synset_ids[args.category])
     create_dir(output_dir)
 
-    test_lmdb_path = '../data/lmdb/%s_%d_val_%s.lmdb' % (args.category, args.num_points, 'test')
+    test_lmdb_path = '../data/lmdb/%s_%d_%s.lmdb' % (args.category, args.num_points, 'test')
     test_gen, num_test_samples = batch_generator(test_lmdb_path, batch_size=1, nproc=1, repeat=False)
 
     with tf.Graph().as_default():
-        print_emph('Creating model...')
+        print(colored('Creating model...', on_color='on_blue'))
         points_pl = tf.placeholder(tf.float32, shape=(1, args.num_points, 3), name='points')
         # labels_pl = tf.placeholder(tf.int32, shape=(1, args.num_points), name='labels')
         # mask_pl = tf.placeholder(tf.bool, shape=(1, args.num_points), name='mask')
@@ -25,7 +26,7 @@ def test(args):
             for j in range(args.order+1)]
             for k in range(args.level+1)]
 
-        output = tf_ops.gcn(points_pl, cheby_pl, args.num_points, args.num_parts)
+        output = tf_ops.gcn(points_pl, cheby_pl, args.num_points, args.num_parts, args.level)
         # accuracy = tf_ops.masked_accuracy(output, labels_pl, mask_pl)
 
         config = tf.ConfigProto()
@@ -35,9 +36,9 @@ def test(args):
 
         latest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
         restorer = tf.train.Saver(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES))
-        print_emph("Model restoring from %s..." % latest_checkpoint)
+        print(colored("Model restoring from %s..." % latest_checkpoint, on_color='on_red'))
         restorer.restore(sess, latest_checkpoint)
-        print_emph("Restored from %s." % latest_checkpoint)
+        print(colored("Restored from %s." % latest_checkpoint, on_color='on_red'))
 
         for file_name, points, perm, cheby in test_gen:
             feed_dict = {points_pl: points}

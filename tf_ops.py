@@ -34,28 +34,32 @@ def graph_conv(inputs,
         return outputs
 
 
-def gcn(points, cheby, num_points, num_parts):
-    with tf.device('/gpu:0'):
-        gc1 = graph_conv(points, cheby[0], 64, 'gc1')
-        print('+++ gc1:', gc1)
-        pool1 = tf.nn.pool(gc1, [2], 'MAX', 'SAME', strides=[2])
-        gc2 = graph_conv(pool1, cheby[1], 64, 'gc2')
-        print('+++ gc2:', gc2)
-        pool2 = tf.nn.pool(gc2, [2], 'MAX', 'SAME', strides=[2])
-        gc3 = graph_conv(pool2, cheby[2], 64, 'gc3')
-        print('+++ gc3:', gc3)
-        bottleneck = tf.reduce_max(pool2, axis=[1])
-        glob = tf.stack([bottleneck for i in range(num_points // 4)], axis=1);
-        gc4 = graph_conv(tf.concat([glob, gc3], axis=2), cheby[2], 64, 'gc4')
-        print('+++ gc4:', gc4)
-        up1 = tf.keras.layers.UpSampling1D(2)(gc4)
-        gc5 = graph_conv(tf.concat([gc2, up1], axis=2), cheby[1], 64, 'gc5')
-        print('+++ gc5:', gc5)
-        up2 = tf.keras.layers.UpSampling1D(2)(gc5)
-        gc6 = graph_conv(tf.concat([gc1, up2], axis=2), cheby[0], num_parts, 'gc6',
-            activation_fn=None)
-        print('+++ gc6:', gc6)
-    return gc6
+def gcn(points, cheby, num_points, num_parts, num_levels):
+    gc = [None for i in range(2 * (num_levels + 1))]
+    pool = [None for i in range(num_levels + 1)]
+    upsamp = [None for i in range(num_levels + 1)]
+    print('Input:', points)
+    gc[0] = graph_conv(points, cheby[0], 64, 'gc1')
+    print('After gc1:', gc[0])
+    for i in range(num_levels):
+        pool[i] = tf.nn.pool(gc[i], [2], 'MAX', 'SAME', strides=[2])
+        gc[i+1] = graph_conv(pool[i], cheby[i+1], 64, 'gc%d' % (i+2))
+        print('After gc%d:' % (i+2), gc[i+1])
+
+    pool[num_levels] = tf.reduce_max(pool[num_levels-1], axis=[1])
+    upsamp[0] = tf.stack([pool[-1] for i in range(num_points // 2 ** num_levels)], axis=1)
+
+    for i in range(num_levels):
+        j = num_levels + 1 + i
+        gc[j] = graph_conv(tf.concat([gc[num_levels-i], upsamp[i]], axis=2),
+            cheby[num_levels-i], 64, 'gc%d' % (j+1))
+        print('After gc%d:' % (j+1), gc[j])
+        upsamp[i+1] = tf.keras.layers.UpSampling1D(2)(gc[j])
+
+    gc[-1] = graph_conv(tf.concat([gc[0], upsamp[num_levels]], axis=2),
+        cheby[0], num_parts, 'gc%d' % len(gc), activation_fn=None)
+    print('After gc%d' % len(gc), gc[-1])
+    return gc[-1]
 
 
 def masked_sparse_softmax_cross_entropy(logits, labels, mask):

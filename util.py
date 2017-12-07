@@ -1,7 +1,6 @@
 import os
 import tensorflow as tf
 from tensorpack import dataflow
-from termcolor import cprint
 
 
 synset_ids = {
@@ -24,13 +23,9 @@ synset_ids = {
 }
 
 
-def print_emph(content):
-    cprint(content, 'blue', attrs=['bold'])
-
-
 def create_dir(dir_name):
     if os.path.exists(dir_name):
-        delete_key = input('===== %s exists. Delete? [y (or enter)/n] ' % dir_name)
+        delete_key = input('%s exists. Delete? [y (or enter)/n] ' % dir_name)
         if delete_key == 'y' or delete_key == "":
             os.system('rm -rf %s' % dir_name)
         else:
