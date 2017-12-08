@@ -46,10 +46,10 @@ def batch_generator(lmdb_path, batch_size, nproc, repeat):
 
 def get_cheby_feed_dict(cheby_pl, cheby):
     feed_dict = {}
-    for i, level in enumerate(cheby_pl):
-        for j, order in enumerate(level):
-            for k, pl in enumerate(order):
+    for l, level in enumerate(cheby_pl):
+        for k, order in enumerate(level):
+            for j, pl in enumerate(order):
                 # cheby.shape = (batch, level, order)
-                indices, values, shape = cheby[k][i][j]
+                indices, values, shape = cheby[j][l][k]
                 feed_dict[pl] = tf.SparseTensorValue(indices, values, shape)
     return feed_dict

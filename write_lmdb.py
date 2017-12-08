@@ -80,7 +80,7 @@ class graph_df(DataFlow):
                 yield [x, y, mask, cheby]
             else:
                 inv_perm = np.argsort(perm)[:n]
-                yield [file_name, x, inv_perm, cheby]
+                yield [file_name, inv_perm, x, y, mask, cheby]
 
     def size(self):
         return len(self.file_names)

@@ -58,24 +58,27 @@ def gcn(points, cheby, num_points, num_parts, num_levels):
 
     gc[-1] = graph_conv(tf.concat([gc[0], upsamp[num_levels]], axis=2),
         cheby[0], num_parts, 'gc%d' % len(gc), activation_fn=None)
-    print('After gc%d' % len(gc), gc[-1])
+    print('After gc%d:' % len(gc), gc[-1])
     return gc[-1]
 
 
-def masked_sparse_softmax_cross_entropy(logits, labels, mask):
+def masked_sparse_softmax_cross_entropy(labels, logits, mask):
     """Softmax cross-entropy loss with masking."""
-    loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits,
-        labels=labels)
-    mask = tf.cast(mask, dtype=tf.float32)
-    loss = tf.reduce_sum(loss * mask, 1) / tf.reduce_sum(mask, 1)
-    return tf.reduce_mean(loss)
+    labels = tf.boolean_mask(labels, mask)
+    logits = tf.boolean_mask(logits, mask)
+    return tf.losses.sparse_softmax_cross_entropy(labels, logits,
+        reduction=tf.losses.Reduction.MEAN)
 
 
-def masked_accuracy(logits, labels, mask):
+def masked_accuracy(labels, predictions, mask):
     """Accuracy with masking."""
-    preds = tf.cast(tf.argmax(logits, axis=2), dtype=tf.int32)
-    correct_prediction = tf.equal(preds, labels)
-    accuracy = tf.cast(correct_prediction, tf.float32)
-    mask = tf.cast(mask, dtype=tf.float32)
-    accuracy = tf.reduce_sum(accuracy * mask, 1) / tf.reduce_sum(mask, 1)
-    return tf.reduce_mean(accuracy)
+    labels = tf.boolean_mask(labels, mask)
+    predictions = tf.boolean_mask(predictions, mask)
+    return tf.metrics.accuracy(labels, predictions)
+
+
+def masked_iou(labels, predictions, num_classes, mask):
+    """Accuracy with masking."""
+    labels = tf.boolean_mask(labels, mask)
+    predictions = tf.boolean_mask(predictions, mask)
+    return tf.metrics.mean_iou(labels, predictions, num_classes)

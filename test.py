@@ -11,7 +11,8 @@ def test(args):
     if not os.path.exists(checkpoint_dir):
         print('Checkpoint %s does not exist!' % checkpoint_dir)
         exit(1)
-    output_dir = os.path.join('../data/test_pred', synset_ids[args.category])
+    output_dir = os.path.join('../results/level-%d_order-%d' % (args.level, args.order),
+        synset_ids[args.category])
     create_dir(output_dir)
 
     test_lmdb_path = '../data/lmdb/%s_%d_%s.lmdb' % (args.category, args.num_points, 'test')
@@ -20,19 +21,22 @@ def test(args):
     with tf.Graph().as_default():
         print(colored('Creating model...', on_color='on_blue'))
         points_pl = tf.placeholder(tf.float32, shape=(1, args.num_points, 3), name='points')
-        # labels_pl = tf.placeholder(tf.int32, shape=(1, args.num_points), name='labels')
-        # mask_pl = tf.placeholder(tf.bool, shape=(1, args.num_points), name='mask')
+        labels_pl = tf.placeholder(tf.int32, shape=(1, args.num_points), name='labels')
+        mask_pl = tf.placeholder(tf.bool, shape=(1, args.num_points), name='mask')
         cheby_pl = [[[tf.sparse_placeholder(tf.float32, name='cheby_l%d_o%d' % (k, j))]
             for j in range(args.order+1)]
             for k in range(args.level+1)]
 
-        output = tf_ops.gcn(points_pl, cheby_pl, args.num_points, args.num_parts, args.level)
-        # accuracy = tf_ops.masked_accuracy(output, labels_pl, mask_pl)
+        logits = tf_ops.gcn(points_pl, cheby_pl, args.num_points, args.num_parts, args.level)
+        predictions = tf.argmax(logits, axis=2, output_type=tf.int32)
+        accuracy, update_acc = tf_ops.masked_accuracy(labels_pl, predictions, mask_pl)
+        mean_iou, update_iou = tf_ops.masked_iou(labels_pl, predictions, args.num_parts, mask_pl)
 
         config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
         config.allow_soft_placement = True
-        sess = tf.Session()
+        sess = tf.Session(config=config)
+        sess.run(tf.local_variables_initializer())
 
         latest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
         restorer = tf.train.Saver(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES))
@@ -40,16 +44,18 @@ def test(args):
         restorer.restore(sess, latest_checkpoint)
         print(colored("Restored from %s." % latest_checkpoint, on_color='on_red'))
 
-        for file_name, points, perm, cheby in test_gen:
-            feed_dict = {points_pl: points}
+        for file_name, perm, points, labels, mask, cheby in test_gen:
+            feed_dict = {points_pl: points, labels_pl: labels, mask_pl: mask}
             feed_dict.update(get_cheby_feed_dict(cheby_pl, cheby))
-            pred = sess.run(output, feed_dict=feed_dict)
-            pred = np.argmax(pred[0], axis=1)
-            pred = pred[perm[0]] + 1    # labels count from 1 instead of 0
+            pred = sess.run(predictions, feed_dict=feed_dict)
+            sess.run([update_acc, update_iou], feed_dict=feed_dict)
+            pred = pred[0][perm[0]] + 1    # labels count from 1 instead of 0
             output_path = os.path.join(output_dir, '%s.seg' % file_name[0])
             with open(output_path, 'w') as f:
                 for p in pred:
                     print(p, file=f)
+        acc, iou = sess.run([accuracy, mean_iou], feed_dict=feed_dict)
+    print(colored('Accuracy: %f  Mean IOU: %f' % (acc, iou), on_color='on_green'))
 
 
 if __name__ == '__main__':

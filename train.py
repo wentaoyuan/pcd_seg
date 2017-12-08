@@ -40,17 +40,20 @@ def train(args):
 
     with tf.Graph().as_default():
         print(colored('Creating model...', on_color='on_blue'))
-        points_pl = tf.placeholder(tf.float32, shape=(args.batch_size, args.num_points, 3), name='points')
-        labels_pl = tf.placeholder(tf.int32, shape=(args.batch_size, args.num_points), name='labels')
-        mask_pl = tf.placeholder(tf.bool, shape=(args.batch_size, args.num_points), name='mask')
-        cheby_pl = [[[tf.sparse_placeholder(tf.float32, name='cheby_l%d_o%d_b%d' % (k, j, i))
-            for i in range(args.batch_size)]
-            for j in range(args.order+1)]
-            for k in range(args.level+1)]
+        with tf.device('/gpu:0'):
+            points_pl = tf.placeholder(tf.float32, shape=(args.batch_size, args.num_points, 3), name='points')
+            labels_pl = tf.placeholder(tf.int32, shape=(args.batch_size, args.num_points), name='labels')
+            mask_pl = tf.placeholder(tf.bool, shape=(args.batch_size, args.num_points), name='mask')
+            cheby_pl = [[[tf.sparse_placeholder(tf.float32, name='cheby_l%d_o%d_%d' % (l, k, j))
+                for j in range(args.batch_size)]
+                for k in range(args.order+1)]
+                for l in range(args.level+1)]
 
-        output = tf_ops.gcn(points_pl, cheby_pl, args.num_points, args.num_parts, args.level)
-        xentropy = tf_ops.masked_sparse_softmax_cross_entropy(output, labels_pl, mask_pl)
-        accuracy = tf_ops.masked_accuracy(output, labels_pl, mask_pl)
+            logits = tf_ops.gcn(points_pl, cheby_pl, args.num_points, args.num_parts, args.level)
+            xentropy = tf_ops.masked_sparse_softmax_cross_entropy(labels_pl, logits, mask_pl)
+            predictions = tf.argmax(logits, axis=2, output_type=tf.int32)
+            accuracy, update_acc = tf_ops.masked_accuracy(labels_pl, predictions, mask_pl)
+            mean_iou, update_iou = tf_ops.masked_iou(labels_pl, predictions, args.num_parts, mask_pl)
 
         config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
@@ -67,20 +70,21 @@ def train(args):
 
         train_loss = tf.summary.scalar('training_loss', xentropy)
         train_acc = tf.summary.scalar('training_accuracy', accuracy)
-        train_summary = tf.summary.merge([train_loss, train_acc, lr_summary])
+        train_iou = tf.summary.scalar('training_iou', mean_iou)
+        train_summary = tf.summary.merge([train_loss, train_acc, train_iou, lr_summary])
         val_loss_pl = tf.placeholder(tf.float32, shape=())
-        val_acc_pl = tf.placeholder(tf.float32, shape=())
         val_loss = tf.summary.scalar('validation_loss', val_loss_pl)
-        val_acc = tf.summary.scalar('validation_accuracy', val_acc_pl)
-        val_summary = tf.summary.merge([val_loss, val_acc])
+        val_acc = tf.summary.scalar('validation_accuracy', accuracy)
+        val_iou = tf.summary.scalar('validation_iou', mean_iou)
+        val_summary = tf.summary.merge([val_loss, val_acc, val_iou])
         writer = tf.summary.FileWriter(log_dir, sess.graph)
 
-        init = tf.global_variables_initializer()
-        sess.run(init)
+        sess.run(tf.global_variables_initializer())
 
         log(colored('Training...', on_color='on_red'))
         start = time.time()
         step = 0
+        max_iou = 0.
         while step < args.max_steps:
             step = tf.train.global_step(sess, global_step) + 1
             epoch = step * args.batch_size // num_train_samples + 1
@@ -89,39 +93,42 @@ def train(args):
             feed_dict = {points_pl: points, labels_pl: labels, mask_pl: mask}
             feed_dict.update(get_cheby_feed_dict(cheby_pl, cheby))
 
-            _, loss, acc, summary = sess.run([train_op, xentropy, accuracy, train_summary],
+            sess.run(tf.local_variables_initializer())
+            sess.run([train_op, update_acc, update_iou], feed_dict=feed_dict)
+            loss, acc, iou, summary = sess.run([xentropy, accuracy, mean_iou, train_summary],
                 feed_dict=feed_dict)
             writer.add_summary(summary, step)
             if step % args.print_steps == 0:
-                log('Epoch: %d  step: %d  loss: %f  accuracy: %f  time: %f' % (
-                    epoch, step, loss, acc, time.time() - start))
+                log('Epoch: %d  step: %d  loss: %f  accuracy: %f  iou: %f  time: %f' % (
+                    epoch, step, loss, acc, iou, time.time() - start))
 
             if step % args.eval_steps == 0:
                 log(colored('Evaluating...', on_color='on_green'))
-                total_loss = 0.
-                total_acc = 0.
+                loss = 0.
                 for i in range(num_val_batches):
                     points, labels, mask, cheby = next(val_gen)
                     feed_dict = {points_pl: points, labels_pl: labels, mask_pl: mask}
                     feed_dict.update(get_cheby_feed_dict(cheby_pl, cheby))
-                    loss, acc = sess.run([xentropy, accuracy], feed_dict=feed_dict)
-                    total_loss += loss * args.batch_size
-                    total_acc += acc * args.batch_size
-                mean_loss = total_loss / (num_val_batches * args.batch_size)
-                mean_acc = total_acc / (num_val_batches * args.batch_size)
-                summary = sess.run(val_summary, feed_dict={val_loss_pl: mean_loss, val_acc_pl: mean_acc})
+                    loss += sess.run(xentropy, feed_dict=feed_dict)
+                    sess.run([update_acc, update_iou], feed_dict=feed_dict)
+                loss /= num_val_batches
+                acc, iou = sess.run([accuracy, mean_iou], feed_dict=feed_dict)
+                summary = sess.run(val_summary, feed_dict={val_loss_pl: loss})
                 writer.add_summary(summary, step)
-                log('Epoch: %d  step: %d  loss: %f  accuracy: %f  time: %f' % (
-                    epoch, step, mean_loss, mean_acc, time.time() - start))
-                saver.save(sess, os.path.join(log_dir, 'model.ckpt'), step)
-                log(colored('Model saved at %s' % log_dir, on_color='on_green'))
+                log('Epoch: %d  step: %d  loss: %f  accuracy: %f  iou: %f  time: %f' % (
+                    epoch, step, loss, acc, iou, time.time() - start))
+                log(colored('Done', on_color='on_green'))
+                if iou > max_iou:
+                    max_iou = iou
+                    saver.save(sess, os.path.join(log_dir, 'model.ckpt'), step)
+                    log(colored('Model saved at %s' % log_dir, on_color='on_red'))
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--category')
     parser.add_argument('--task_name')
-    parser.add_argument('--nproc', type=int, default=8)
+    parser.add_argument('--nproc', type=int, default=4)
     parser.add_argument('--num_points', type=int, default=4096)
     parser.add_argument('--num_parts', type=int, default=4)
     parser.add_argument('--level', type=int, default=2)
