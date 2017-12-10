@@ -62,6 +62,11 @@ def train(args):
         sess = tf.Session(config=config)
 
         saver = tf.train.Saver(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES))
+        if args.restore:
+            latest_checkpoint = tf.train.latest_checkpoint(log_dir)
+            print(colored("Model restoring from %s..." % latest_checkpoint, on_color='on_red'))
+            restorer.restore(sess, latest_checkpoint)
+            print(colored("Restored from %s." % latest_checkpoint, on_color='on_red'))
 
         global_step = tf.train.create_global_step(sess.graph)
         learning_rate = get_learning_rate(global_step, args)
@@ -129,6 +134,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--category')
     parser.add_argument('--task_name')
+    parser.add_argument('--restore', action=store_true)
     parser.add_argument('--nproc', type=int, default=4)
     parser.add_argument('--num_points', type=int, default=4096)
     parser.add_argument('--num_parts', type=int, default=4)
