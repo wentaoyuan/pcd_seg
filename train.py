@@ -28,9 +28,12 @@ def train(args):
         print(content)
 
     log_dir = os.path.join('../log', args.task_name)
-    create_dir(log_dir)
-    log_file = open(os.path.join(log_dir, 'log.txt'), 'w')
-    log(str(args))
+    if not args.restore:
+        create_dir(log_dir)
+        log_file = open(os.path.join(log_dir, 'log.txt'), 'w')
+        log(str(args))
+    else:
+        log_file = open(os.path.join(log_dir, 'log.txt'), 'a'))
 
     train_lmdb_path = '../data/lmdb/%s_%d_%s.lmdb' % (args.category, args.num_points, 'train')
     val_lmdb_path = '../data/lmdb/%s_%d_%s.lmdb' % (args.category, args.num_points, 'val')
