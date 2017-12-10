@@ -62,6 +62,34 @@ def gcn(points, cheby, num_points, num_parts, num_levels):
     return gc[-1]
 
 
+def gcn_nopool(points, cheby, num_points, num_parts, num_levels):
+    gc = [None for i in range(2 * (num_levels + 1))]
+    pool = [None for i in range(num_levels + 1)]
+    upsamp = [None for i in range(num_levels + 1)]
+    print('Input:', points)
+    gc[0] = graph_conv(points, cheby[0], 64, 'gc1')
+    print('After gc1:', gc[0])
+    for i in range(num_levels):
+        pool[i] = gc[i]
+        gc[i+1] = graph_conv(pool[i], cheby[0], 64, 'gc%d' % (i+2))
+        print('After gc%d:' % (i+2), gc[i+1])
+
+    pool[num_levels] = tf.reduce_max(pool[num_levels-1], axis=[1])
+    upsamp[0] = tf.stack([pool[-1] for i in range(num_points)], axis=1)
+
+    for i in range(num_levels):
+        j = num_levels + 1 + i
+        gc[j] = graph_conv(tf.concat([gc[num_levels-i], upsamp[i]], axis=2),
+            cheby[0], 64, 'gc%d' % (j+1))
+        upsamp[i+1] = gc[j]
+        print('After gc%d:' % (j+1), gc[j])
+
+    gc[-1] = graph_conv(tf.concat([gc[0], upsamp[num_levels]], axis=2),
+        cheby[0], num_parts, 'gc%d' % len(gc), activation_fn=None)
+    print('After gc%d:' % len(gc), gc[-1])
+    return gc[-1]
+
+
 def masked_sparse_softmax_cross_entropy(labels, logits, mask):
     """Softmax cross-entropy loss with masking."""
     labels = tf.boolean_mask(labels, mask)

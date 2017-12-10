@@ -48,8 +48,9 @@ def train(args):
                 for j in range(args.batch_size)]
                 for k in range(args.order+1)]
                 for l in range(args.level+1)]
+            cheby_pl = [cheby_pl[0]]
 
-            logits = tf_ops.gcn(points_pl, cheby_pl, args.num_points, args.num_parts, args.level)
+            logits = tf_ops.gcn_nopool(points_pl, cheby_pl, args.num_points, args.num_parts, args.level)
             xentropy = tf_ops.masked_sparse_softmax_cross_entropy(labels_pl, logits, mask_pl)
             predictions = tf.argmax(logits, axis=2, output_type=tf.int32)
             accuracy, update_acc = tf_ops.masked_accuracy(labels_pl, predictions, mask_pl)
