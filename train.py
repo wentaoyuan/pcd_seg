@@ -33,7 +33,7 @@ def train(args):
         log_file = open(os.path.join(log_dir, 'log.txt'), 'w')
         log(str(args))
     else:
-        log_file = open(os.path.join(log_dir, 'log.txt'), 'a'))
+        log_file = open(os.path.join(log_dir, 'log.txt'), 'a')
 
     train_lmdb_path = '../data/lmdb/%s_%d_%s.lmdb' % (args.category, args.num_points, 'train')
     val_lmdb_path = '../data/lmdb/%s_%d_%s.lmdb' % (args.category, args.num_points, 'val')
@@ -137,7 +137,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--category')
     parser.add_argument('--task_name')
-    parser.add_argument('--restore', action=store_true)
+    parser.add_argument('--restore', action='store_true')
     parser.add_argument('--nproc', type=int, default=4)
     parser.add_argument('--num_points', type=int, default=4096)
     parser.add_argument('--num_parts', type=int, default=4)
