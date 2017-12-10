@@ -68,7 +68,7 @@ def train(args):
         if args.restore:
             latest_checkpoint = tf.train.latest_checkpoint(log_dir)
             print(colored("Model restoring from %s..." % latest_checkpoint, on_color='on_red'))
-            restorer.restore(sess, latest_checkpoint)
+            saver.restore(sess, latest_checkpoint)
             print(colored("Restored from %s." % latest_checkpoint, on_color='on_red'))
 
         global_step = tf.train.create_global_step(sess.graph)
