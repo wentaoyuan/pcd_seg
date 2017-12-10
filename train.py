@@ -28,9 +28,12 @@ def train(args):
         print(content)
 
     log_dir = os.path.join('../log', args.task_name)
-    create_dir(log_dir)
-    log_file = open(os.path.join(log_dir, 'log.txt'), 'w')
-    log(str(args))
+    if not args.restore:
+        create_dir(log_dir)
+        log_file = open(os.path.join(log_dir, 'log.txt'), 'w')
+        log(str(args))
+    else:
+        log_file = open(os.path.join(log_dir, 'log.txt'), 'a')
 
     train_lmdb_path = '../data/lmdb/%s_%d_%s.lmdb' % (args.category, args.num_points, 'train')
     val_lmdb_path = '../data/lmdb/%s_%d_%s.lmdb' % (args.category, args.num_points, 'val')
@@ -61,7 +64,12 @@ def train(args):
         config.allow_soft_placement = True
         sess = tf.Session(config=config)
 
-        saver = tf.train.Saver(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES))
+        saver = tf.train.Saver()
+        if args.restore:
+            latest_checkpoint = tf.train.latest_checkpoint(log_dir)
+            print(colored("Model restoring from %s..." % latest_checkpoint, on_color='on_red'))
+            saver.restore(sess, latest_checkpoint)
+            print(colored("Restored from %s." % latest_checkpoint, on_color='on_red'))
 
         global_step = tf.train.create_global_step(sess.graph)
         learning_rate = get_learning_rate(global_step, args)
@@ -129,6 +137,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--category')
     parser.add_argument('--task_name')
+    parser.add_argument('--restore', action='store_true')
     parser.add_argument('--nproc', type=int, default=4)
     parser.add_argument('--num_points', type=int, default=4096)
     parser.add_argument('--num_parts', type=int, default=4)

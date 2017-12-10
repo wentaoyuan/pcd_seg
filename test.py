@@ -11,7 +11,7 @@ def test(args):
     if not os.path.exists(checkpoint_dir):
         print('Checkpoint %s does not exist!' % checkpoint_dir)
         exit(1)
-    output_dir = os.path.join('../results/level-%d_order-%d' % (args.level, args.order),
+    output_dir = os.path.join('../predictions/level-%d_order-%d' % (args.level, args.order),
         synset_ids[args.category])
     create_dir(output_dir)
 
