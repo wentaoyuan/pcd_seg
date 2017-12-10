@@ -1,5 +1,5 @@
-# 10707_project
-Semantic point cloud segmentation with graph convolutional network
+# Semantic point cloud segmentation with graph convolutional network
+Class project for CMU 10707 Deep Learning.
 
 ## Usage
 First, download data from <https://shapenet.cs.stanford.edu/iccv17>.
