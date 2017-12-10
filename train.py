@@ -51,9 +51,8 @@ def train(args):
                 for j in range(args.batch_size)]
                 for k in range(args.order+1)]
                 for l in range(args.level+1)]
-            cheby_pl = [cheby_pl[0]]
 
-            logits = tf_ops.gcn_nopool(points_pl, cheby_pl, args.num_points, args.num_parts, args.level)
+            logits = tf_ops.gcn(points_pl, cheby_pl, args.num_points, args.num_parts, args.level)
             xentropy = tf_ops.masked_sparse_softmax_cross_entropy(labels_pl, logits, mask_pl)
             predictions = tf.argmax(logits, axis=2, output_type=tf.int32)
             accuracy, update_acc = tf_ops.masked_accuracy(labels_pl, predictions, mask_pl)
@@ -88,6 +87,7 @@ def train(args):
         val_summary = tf.summary.merge([val_loss, val_acc, val_iou])
         writer = tf.summary.FileWriter(log_dir, sess.graph)
 
+        max_iou_var = tf.Variable(0, trainable=False, name='max_iou')
         sess.run(tf.global_variables_initializer())
 
         log(colored('Training...', on_color='on_red'))
@@ -129,6 +129,7 @@ def train(args):
                 log(colored('Done', on_color='on_green'))
                 if iou > max_iou:
                     max_iou = iou
+                    tf.assign(max_iou_var, max_iou)
                     saver.save(sess, os.path.join(log_dir, 'model.ckpt'), step)
                     log(colored('Model saved at %s' % log_dir, on_color='on_red'))
 
